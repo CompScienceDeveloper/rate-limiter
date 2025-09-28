@@ -49,7 +49,7 @@ The system consists of:
 
 
 
-### Leaky Bucket Algorithm Visualization
+### Token Bucket Algorithm Visualization
 
     Time →    0s          1s          2s          3s
               │           │           │           │
@@ -155,16 +155,16 @@ The system consists of:
 
 1. **Sliding Window** - Total requests in last 1 min interval
 2. **Fixed Window** - Between start and end of each minute count requests
-3. **Leaky Bucket** - The chosen algorithm for this system
+3. **Token Bucket** - The chosen algorithm for this system
 
-### Why Leaky Bucket?
+### Why Token Bucket?
 
-Leaky Bucket algorithm is specifically chosen as it:
+Token Bucket algorithm is specifically chosen as it:
 - Handles burst rate in a better way
 - Provides equal distribution to each user
 - Memory efficient compared to sliding window (which requires storing logs)
 
-### Leaky Bucket Implementation
+### Token Bucket Implementation
 
 - **Rate**: 100 requests per second for each user
 - **Token Fill**: 100 tokens are added each second
@@ -212,7 +212,7 @@ Requests:       [✓]  [✓]  [✓]  [ ]
                 ✗ Rejected requests (red)
 ```
 
-#### Leaky Bucket
+#### Token Bucket
 ```
 Bucket fills at constant rate (100 tokens/second)
 Requests consume tokens
@@ -231,7 +231,7 @@ When rate limit is exceeded:
 ## Key Design Decisions
 
 1. **Availability over Consistency**: System continues operating with stale rate limit config rather than failing
-2. **Algorithm Choice**: Leaky Bucket for burst handling and fairness
+2. **Algorithm Choice**: Token Bucket for burst handling and fairness
 3. **Storage**: Redis for high-performance, distributed rate limiting
 4. **Redundancy**: Replica clusters for fault tolerance
 5. **Atomicity**: Lua scripts to prevent race conditions
