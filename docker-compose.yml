@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Redis cluster setup for rate limiting
+  redis-master:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --replica-read-only no
+    volumes:
+      - redis_data:/data
+    networks:
+      - rate_limiter_network
+
+  redis-replica:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --replicaof redis-master 6379
+    depends_on:
+      - redis-master
+    networks:
+      - rate_limiter_network
+
+  # API Gateway
+  api-gateway:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis-master:6379
+      - SERVICE_A_URL=http://service-a:8001
+      - SERVICE_B_URL=http://service-b:8002
+      - SERVICE_C_URL=http://service-c:8003
+      - LOG_LEVEL=INFO
+    depends_on:
+      - redis-master
+      - service-a
+      - service-b
+      - service-c
+    command: uvicorn src.gateway.api_gateway:app --host 0.0.0.0 --port 8000
+    networks:
+      - rate_limiter_network
+
+  # Microservice A
+  service-a:
+    build: .
+    ports:
+      - "8001:8001"
+    command: uvicorn src.services.service_a:app --host 0.0.0.0 --port 8001
+    networks:
+      - rate_limiter_network
+
+  # Microservice B
+  service-b:
+    build: .
+    ports:
+      - "8002:8002"
+    command: uvicorn src.services.service_b:app --host 0.0.0.0 --port 8002
+    networks:
+      - rate_limiter_network
+
+  # Microservice C
+  service-c:
+    build: .
+    ports:
+      - "8003:8003"
+    command: uvicorn src.services.service_c:app --host 0.0.0.0 --port 8003
+    networks:
+      - rate_limiter_network
+
+volumes:
+  redis_data:
+
+networks:
+  rate_limiter_network:
+    driver: bridge
