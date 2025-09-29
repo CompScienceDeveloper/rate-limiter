@@ -11,7 +11,7 @@ class SimpleTokenBucketRateLimiter:
     Simplified Token Bucket Rate Limiter without Lua scripts for easier debugging.
     """
 
-    def __init__(self, redis_client: redis.Redis, default_rate: int = 100, default_capacity: int = 100):
+    def __init__(self, redis_client: redis.Redis, default_rate: float = 20/60, default_capacity: int = 20):
         self.redis = redis_client
         self.default_rate = default_rate
         self.default_capacity = default_capacity
@@ -57,12 +57,14 @@ class SimpleTokenBucketRateLimiter:
                 # Consume tokens
                 current_tokens -= tokens_requested
 
-                # Update Redis
-                await self.redis.hmset(key, {
+                # Update Redis in single pipeline for better performance
+                pipe = self.redis.pipeline()
+                pipe.hmset(key, {
                     'tokens': current_tokens,
                     'last_refill': current_time
                 })
-                await self.redis.expire(key, 3600)  # 1 hour TTL
+                pipe.expire(key, 3600)  # 1 hour TTL
+                await pipe.execute()
 
                 return {
                     "passed": True,
@@ -71,12 +73,14 @@ class SimpleTokenBucketRateLimiter:
                     "X-RateLimit-Remaining": int(current_tokens),
                 }
             else:
-                # Not enough tokens
-                await self.redis.hmset(key, {
+                # Not enough tokens - update Redis in pipeline
+                pipe = self.redis.pipeline()
+                pipe.hmset(key, {
                     'tokens': current_tokens,
                     'last_refill': current_time
                 })
-                await self.redis.expire(key, 3600)
+                pipe.expire(key, 3600)
+                await pipe.execute()
 
                 # Calculate when we'll have enough tokens
                 tokens_needed = tokens_requested - current_tokens

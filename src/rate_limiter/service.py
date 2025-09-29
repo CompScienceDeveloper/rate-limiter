@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from fastapi import Request, HTTPException
 import redis.asyncio as redis
 import logging
-from .simple_limiter import SimpleTokenBucketRateLimiter as TokenBucketRateLimiter
+from .token_bucket import TokenBucketRateLimiter
 
 logger = logging.getLogger(__name__)
 

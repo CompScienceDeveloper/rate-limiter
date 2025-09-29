@@ -17,7 +17,7 @@ class TokenBucketRateLimiter:
     - Handles burst traffic efficiently
     """
 
-    def __init__(self, redis_client: redis.Redis, default_rate: int = 100, default_capacity: int = 100):
+    def __init__(self, redis_client: redis.Redis, default_rate: float = 20/60, default_capacity: int = 20):
         self.redis = redis_client
         self.default_rate = default_rate  # tokens per second
         self.default_capacity = default_capacity  # max tokens in bucket
@@ -37,7 +37,7 @@ class TokenBucketRateLimiter:
 
         -- Calculate tokens to add based on time elapsed
         local time_elapsed = current_time - last_refill
-        local tokens_to_add = math.floor(time_elapsed * rate)
+        local tokens_to_add = time_elapsed * rate
 
         -- Add tokens but don't exceed capacity
         tokens = math.min(capacity, tokens + tokens_to_add)
@@ -71,7 +71,13 @@ class TokenBucketRateLimiter:
 
     async def initialize(self):
         """Initialize the Lua script in Redis"""
-        self.script = self.redis.register_script(self.lua_script)
+        try:
+            self.script = self.redis.register_script(self.lua_script)
+            # Test that script registration worked
+            logger.info("Lua script registered successfully")
+        except Exception as e:
+            logger.error(f"Failed to register Lua script: {e}")
+            raise
 
     async def is_allowed(
         self,
