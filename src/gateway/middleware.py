@@ -22,7 +22,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, rate_limiter_service, excluded_paths: Optional[list] = None):
         super().__init__(app)
         self.rate_limiter_service = rate_limiter_service
-        self.excluded_paths = excluded_paths or ["/health", "/docs", "/openapi.json"]
+        self.excluded_paths = excluded_paths or ["/health", "/docs", "/openapi.json", "/rate-limit/reset", "/rate-limit/status"]
 
     async def dispatch(self, request: Request, call_next):
         """Process request through rate limiting"""
@@ -32,14 +32,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         try:
+            # Measure rate limiter processing time (API Gateway perspective)
+            rate_limiter_start = time.perf_counter()
+
             # Check rate limit
             rate_limit_result = await self.rate_limiter_service.check_rate_limit(request)
+
+            rate_limiter_end = time.perf_counter()
+            rate_limiter_processing_time_ms = (rate_limiter_end - rate_limiter_start) * 1000
 
             # Add rate limit headers to response
             headers = {
                 "X-RateLimit-Limit": str(rate_limit_result["X-RateLimit-Limit"]),
                 "X-RateLimit-Remaining": str(rate_limit_result["X-RateLimit-Remaining"]),
-                "X-RateLimit-Reset": str(rate_limit_result["resetTime"])
+                "X-RateLimit-Reset": str(rate_limit_result["resetTime"]),
+                "X-RateLimit-Processing-Time": f"{rate_limiter_processing_time_ms:.2f}"
             }
 
             if rate_limit_result["passed"]:

@@ -68,6 +68,7 @@ class RateLimiterService:
         # Method 1: API Key
         api_key = request.headers.get("X-API-Key")
         if api_key:
+            # Even malformed API keys get hashed and rate limited
             return f"{IDENTITY_PREFIX_API_KEY}:{hashlib.sha256(api_key.encode()).hexdigest()[:IDENTITY_HASH_LENGTH]}"
 
         # Method 2: JWT Token
@@ -81,6 +82,8 @@ class RateLimiterService:
                     return f"{IDENTITY_PREFIX_USER}:{user_id}"
             except jwt.InvalidTokenError:
                 logger.warning("Invalid JWT token provided")
+                # Malformed JWT tokens still get rate limited based on the token value
+                return f"{IDENTITY_PREFIX_USER}:malformed:{hashlib.sha256(token.encode()).hexdigest()[:IDENTITY_HASH_LENGTH]}"
 
         # Method 3: IP Address (fallback)
         client_ip = self._get_client_ip(request)
