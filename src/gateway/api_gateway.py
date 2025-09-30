@@ -9,6 +9,7 @@ import uvicorn
 
 from ..rate_limiter.service import rate_limiter_service
 from .middleware import RateLimitMiddleware, RequestLoggingMiddleware
+from ..config.constants import RATE_LIMIT_DESCRIPTION
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -137,7 +138,7 @@ async def root():
         "message": "Rate Limiter API Gateway",
         "version": "1.0.0",
         "algorithm": "Token Bucket",
-        "rate": "100 requests/second per user",
+        "rate": RATE_LIMIT_DESCRIPTION,
         "services": list(SERVICES.keys()),
         "docs": "/docs"
     }

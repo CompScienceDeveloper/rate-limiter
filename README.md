@@ -230,7 +230,7 @@ When rate limit is exceeded:
 
 ## Key Design Decisions
 
-1. **Availability over Consistency**: System continues operating with stale rate limit config rather than failing
+1. **Fail Closed**: System denies requests if Redis is unavailable (security over availability)
 2. **Algorithm Choice**: Token Bucket for burst handling and fairness
 3. **Storage**: Redis for high-performance, distributed rate limiting
 4. **Redundancy**: Replica clusters for fault tolerance

@@ -69,8 +69,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             logger.error(f"Rate limiting error: {e}")
-            # In case of errors, allow the request (availability > consistency)
-            return await call_next(request)
+            # Fail closed: Deny request if rate limiter is unavailable
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "Service Unavailable",
+                    "message": "Rate limiter is temporarily unavailable",
+                    "detail": "Please try again later"
+                }
+            )
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):

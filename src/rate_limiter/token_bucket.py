@@ -4,6 +4,7 @@ from typing import Dict, Optional, Tuple
 import redis.asyncio as redis
 import json
 import logging
+from ..config.constants import DEFAULT_RATE, DEFAULT_CAPACITY, REDIS_KEY_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -12,15 +13,15 @@ class TokenBucketRateLimiter:
     Token Bucket Rate Limiter implementation using Redis for distributed rate limiting.
 
     According to the spec:
-    - Rate: 100 requests per second per user
+    - Rate: Configurable via constants (default from environment)
     - Uses Lua scripts for atomicity
     - Handles burst traffic efficiently
     """
 
-    def __init__(self, redis_client: redis.Redis, default_rate: float = 20/60, default_capacity: int = 20):
+    def __init__(self, redis_client: redis.Redis, default_rate: Optional[float] = None, default_capacity: Optional[int] = None):
         self.redis = redis_client
-        self.default_rate = default_rate  # tokens per second
-        self.default_capacity = default_capacity  # max tokens in bucket
+        self.default_rate = default_rate if default_rate is not None else DEFAULT_RATE  # tokens per second
+        self.default_capacity = default_capacity if default_capacity is not None else DEFAULT_CAPACITY  # max tokens in bucket
 
         # Lua script for atomic token bucket operations
         self.lua_script = """
@@ -47,16 +48,16 @@ class TokenBucketRateLimiter:
             -- Consume tokens
             tokens = tokens - tokens_requested
 
-            -- Update bucket state with TTL of 1 hour
+            -- Update bucket state with TTL
             redis.call('HMSET', key, 'tokens', tokens, 'last_refill', current_time)
-            redis.call('EXPIRE', key, 3600)
+            redis.call('EXPIRE', key, ARGV[5])
 
             -- Return success with remaining tokens
             return {1, tokens, capacity - tokens}
         else
             -- Update bucket state even if request is denied
             redis.call('HMSET', key, 'tokens', tokens, 'last_refill', current_time)
-            redis.call('EXPIRE', key, 3600)
+            redis.call('EXPIRE', key, ARGV[5])
 
             -- Calculate reset time (when bucket will have enough tokens)
             local tokens_needed = tokens_requested - tokens
@@ -119,7 +120,7 @@ class TokenBucketRateLimiter:
             # Execute Lua script atomically
             result = await self.script(
                 keys=[key],
-                args=[rate, capacity, tokens_requested, current_time]
+                args=[rate, capacity, tokens_requested, current_time, REDIS_KEY_TTL]
             )
 
             allowed = bool(result[0])
@@ -142,13 +143,8 @@ class TokenBucketRateLimiter:
 
         except Exception as e:
             logger.error(f"Rate limiting error for {client_id}: {e}")
-            # In case of Redis errors, allow the request (availability > consistency)
-            return {
-                "passed": True,
-                "resetTime": int(current_time + 1),
-                "X-RateLimit-Limit": capacity,
-                "X-RateLimit-Remaining": capacity,
-            }
+            # Fail closed: Deny request if Redis is unavailable
+            raise Exception(f"Rate limiter unavailable: {e}")
 
     async def get_bucket_status(self, client_id: str, rule_id: str = "default") -> Dict:
         """Get current bucket status without consuming tokens"""

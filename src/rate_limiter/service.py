@@ -5,6 +5,13 @@ from fastapi import Request, HTTPException
 import redis.asyncio as redis
 import logging
 from .token_bucket import TokenBucketRateLimiter
+from ..config.constants import (
+    REDIS_DEFAULT_URL,
+    IDENTITY_PREFIX_API_KEY,
+    IDENTITY_PREFIX_USER,
+    IDENTITY_PREFIX_IP,
+    IDENTITY_HASH_LENGTH
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +34,14 @@ class RateLimiterService:
     async def initialize(self):
         """Initialize Redis connection and rate limiter"""
         try:
-            self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
+            # Optimize Redis for rate limiter performance only
+            self.redis_client = redis.from_url(
+                self.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=1,  # Fast connection
+                socket_timeout=1,          # Fast operations
+                retry_on_timeout=False     # Fail fast for rate limiting
+            )
             await self.redis_client.ping()
 
             self.rate_limiter = TokenBucketRateLimiter(self.redis_client)
@@ -54,7 +68,7 @@ class RateLimiterService:
         # Method 1: API Key
         api_key = request.headers.get("X-API-Key")
         if api_key:
-            return f"api_key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
+            return f"{IDENTITY_PREFIX_API_KEY}:{hashlib.sha256(api_key.encode()).hexdigest()[:IDENTITY_HASH_LENGTH]}"
 
         # Method 2: JWT Token
         auth_header = request.headers.get("Authorization")
@@ -64,13 +78,13 @@ class RateLimiterService:
                 payload = jwt.decode(token, self.jwt_secret, algorithms=["HS256"])
                 user_id = payload.get("user_id") or payload.get("sub")
                 if user_id:
-                    return f"user:{user_id}"
+                    return f"{IDENTITY_PREFIX_USER}:{user_id}"
             except jwt.InvalidTokenError:
                 logger.warning("Invalid JWT token provided")
 
         # Method 3: IP Address (fallback)
         client_ip = self._get_client_ip(request)
-        return f"ip:{client_ip}"
+        return f"{IDENTITY_PREFIX_IP}:{client_ip}"
 
     def _get_client_ip(self, request: Request) -> str:
         """Extract client IP address from request"""

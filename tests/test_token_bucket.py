@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import redis.asyncio as redis
 
 from src.rate_limiter.token_bucket import TokenBucketRateLimiter
+from src.config.constants import DEFAULT_RATE, DEFAULT_CAPACITY
 
 @pytest.fixture
 async def mock_redis():
@@ -15,7 +16,7 @@ async def mock_redis():
 @pytest.fixture
 async def rate_limiter(mock_redis):
     """Rate limiter instance with mocked Redis"""
-    limiter = TokenBucketRateLimiter(mock_redis, default_rate=100, default_capacity=100)
+    limiter = TokenBucketRateLimiter(mock_redis)
     await limiter.initialize()
     return limiter
 
@@ -24,20 +25,20 @@ async def test_token_bucket_initialization(mock_redis):
     """Test rate limiter initialization"""
     limiter = TokenBucketRateLimiter(mock_redis)
     assert limiter.redis == mock_redis
-    assert limiter.default_rate == 100
-    assert limiter.default_capacity == 100
+    assert limiter.default_rate == DEFAULT_RATE
+    assert limiter.default_capacity == DEFAULT_CAPACITY
 
 @pytest.mark.asyncio
 async def test_is_allowed_success(rate_limiter, mock_redis):
     """Test successful rate limit check"""
     # Mock Lua script execution result: [allowed, remaining_tokens, used_tokens]
-    mock_redis.register_script.return_value.return_value = [1, 99, 1]
+    mock_redis.register_script.return_value.return_value = [1, DEFAULT_CAPACITY - 1, 1]
 
     result = await rate_limiter.is_allowed("user123", "default", 1)
 
     assert result["passed"] is True
-    assert result["X-RateLimit-Limit"] == 100
-    assert result["X-RateLimit-Remaining"] == 99
+    assert result["X-RateLimit-Limit"] == DEFAULT_CAPACITY
+    assert result["X-RateLimit-Remaining"] == DEFAULT_CAPACITY - 1
     assert "resetTime" in result
 
 @pytest.mark.asyncio
@@ -45,12 +46,12 @@ async def test_is_allowed_rate_limited(rate_limiter, mock_redis):
     """Test rate limit exceeded scenario"""
     # Mock Lua script execution result: [denied, remaining_tokens, used_tokens, reset_time]
     reset_time = time.time() + 10
-    mock_redis.register_script.return_value.return_value = [0, 0, 100, reset_time]
+    mock_redis.register_script.return_value.return_value = [0, 0, DEFAULT_CAPACITY, reset_time]
 
     result = await rate_limiter.is_allowed("user123", "default", 1)
 
     assert result["passed"] is False
-    assert result["X-RateLimit-Limit"] == 100
+    assert result["X-RateLimit-Limit"] == DEFAULT_CAPACITY
     assert result["X-RateLimit-Remaining"] == 0
     assert result["resetTime"] == int(reset_time)
 
@@ -64,20 +65,20 @@ async def test_is_allowed_redis_error_fallback(rate_limiter, mock_redis):
 
     # Should allow request when Redis fails (availability > consistency)
     assert result["passed"] is True
-    assert result["X-RateLimit-Limit"] == 100
-    assert result["X-RateLimit-Remaining"] == 100
+    assert result["X-RateLimit-Limit"] == DEFAULT_CAPACITY
+    assert result["X-RateLimit-Remaining"] == DEFAULT_CAPACITY
 
 @pytest.mark.asyncio
 async def test_get_bucket_status(rate_limiter, mock_redis):
     """Test getting bucket status"""
     # Mock bucket data
-    mock_redis.hmget.return_value = [50, time.time() - 1]
+    mock_redis.hmget.return_value = [DEFAULT_CAPACITY // 2, time.time() - 1]
 
     status = await rate_limiter.get_bucket_status("user123")
 
-    assert status["tokens"] >= 50  # Should have refilled some tokens
-    assert status["capacity"] == 100
-    assert status["rate"] == 100
+    assert status["tokens"] >= DEFAULT_CAPACITY // 2  # Should have refilled some tokens
+    assert status["capacity"] == DEFAULT_CAPACITY
+    assert status["rate"] == DEFAULT_RATE
 
 @pytest.mark.asyncio
 async def test_reset_bucket(rate_limiter, mock_redis):
