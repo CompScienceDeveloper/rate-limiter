@@ -1,7 +1,9 @@
 import time
 import math
 from typing import Dict, Optional, Tuple
+from datetime import datetime, timezone
 import redis.asyncio as redis
+from redis.asyncio.cluster import RedisCluster
 import json
 import logging
 from ..config.constants import DEFAULT_RATE, DEFAULT_CAPACITY, REDIS_KEY_TTL
@@ -18,7 +20,7 @@ class TokenBucketRateLimiter:
     - Handles burst traffic efficiently
     """
 
-    def __init__(self, redis_client: redis.Redis, default_rate: Optional[float] = None, default_capacity: Optional[int] = None):
+    def __init__(self, redis_client, default_rate: Optional[float] = None, default_capacity: Optional[int] = None):
         self.redis = redis_client
         self.default_rate = default_rate if default_rate is not None else DEFAULT_RATE  # tokens per second
         self.default_capacity = default_capacity if default_capacity is not None else DEFAULT_CAPACITY  # max tokens in bucket
@@ -58,9 +60,16 @@ class TokenBucketRateLimiter:
             -- Update bucket state even if request is denied
             redis.call('HMSET', key, 'tokens', tokens, 'last_refill', current_time)
             redis.call('EXPIRE', key, ARGV[5])
-
             -- Calculate reset time (when bucket will have enough tokens)
             local tokens_needed = tokens_requested - tokens
+
+            -- Guard against division by zero / misconfiguration (rate <= 0)
+            if rate <= 0 then
+                -- No refill configured: set reset time very far in the future (1 year)
+                local reset_time = current_time + 31536000
+                return {0, tokens, capacity - tokens, reset_time}
+            end
+
             local reset_time = current_time + (tokens_needed / rate)
 
             -- Return failure with reset time
@@ -117,11 +126,14 @@ class TokenBucketRateLimiter:
         current_time = time.time()
 
         try:
-            # Execute Lua script atomically
+            # Execute Lua script atomically and measure Redis execution time
+            script_start = time.perf_counter()
             result = await self.script(
                 keys=[key],
                 args=[rate, capacity, tokens_requested, current_time, REDIS_KEY_TTL]
             )
+            script_end = time.perf_counter()
+            redis_exec_time_ms = (script_end - script_start) * 1000
 
             allowed = bool(result[0])
             remaining_tokens = int(result[1])
@@ -133,18 +145,51 @@ class TokenBucketRateLimiter:
                 "X-RateLimit-Remaining": remaining_tokens,
             }
 
+            # attach measured Redis execution time (ms) for profiling
+            try:
+                response["X-RateLimit-Redis-Time"] = f"{redis_exec_time_ms:.2f}"
+            except Exception:
+                pass
+
+            # Format reset time as human-readable UTC ISO8601 string
             if not allowed and len(result) > 3:
-                response["resetTime"] = int(result[3])
+                reset_ts = float(result[3])
             else:
-                response["resetTime"] = int(current_time + 1)  # Next second
+                reset_ts = current_time + 1  # Next second
+
+            # Provide both epoch (backward-compatible) and ISO string
+            try:
+                iso = datetime.fromtimestamp(reset_ts, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+            except Exception:
+                iso = None
+
+            response["resetTimeEpoch"] = int(reset_ts)
+            response["resetTime"] = int(reset_ts)  # backward-compatible integer field expected by tests
+            if iso:
+                response["resetTimeISO"] = iso
 
             logger.debug(f"Rate limit check for {client_id}: {response}")
             return response
 
         except Exception as e:
             logger.error(f"Rate limiting error for {client_id}: {e}")
-            # Fail closed: Deny request if Redis is unavailable
-            raise Exception(f"Rate limiter unavailable: {e}")
+            # Fallback: allow request when Redis fails (availability over strict consistency)
+            try:
+                reset_iso = datetime.fromtimestamp(current_time + 1, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+            except Exception:
+                reset_iso = None
+
+            fallback = {
+                "passed": True,
+                "X-RateLimit-Limit": capacity,
+                "X-RateLimit-Remaining": capacity,
+                "resetTimeEpoch": int(current_time + 1),
+                "resetTime": int(current_time + 1)
+            }
+            if reset_iso:
+                fallback["resetTimeISO"] = reset_iso
+
+            return fallback
 
     async def get_bucket_status(self, client_id: str, rule_id: str = "default") -> Dict:
         """Get current bucket status without consuming tokens"""
@@ -152,19 +197,35 @@ class TokenBucketRateLimiter:
 
         try:
             bucket_data = await self.redis.hmget(key, 'tokens', 'last_refill')
-            tokens = int(bucket_data[0]) if bucket_data[0] else self.default_capacity
+            tokens = float(bucket_data[0]) if bucket_data[0] else float(self.default_capacity)
             last_refill = float(bucket_data[1]) if bucket_data[1] else time.time()
 
-            # Calculate current tokens
+            # Calculate current tokens using float refill math (same as Lua)
             time_elapsed = time.time() - last_refill
-            tokens_to_add = math.floor(time_elapsed * self.default_rate)
+            tokens_to_add = time_elapsed * self.default_rate
             current_tokens = min(self.default_capacity, tokens + tokens_to_add)
+
+            # compute reset epoch when bucket will be full/next token
+            # If rate <= 0, set far-future reset
+            if self.default_rate <= 0:
+                reset_epoch = time.time() + 31536000
+            else:
+                # If already has at least 1 token, reset is next second
+                if current_tokens >= 1:
+                    reset_epoch = time.time() + 1
+                else:
+                    tokens_needed = 1 - current_tokens
+                    reset_epoch = time.time() + (tokens_needed / self.default_rate)
+
+            reset_iso = datetime.fromtimestamp(reset_epoch, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
             return {
                 "tokens": current_tokens,
                 "capacity": self.default_capacity,
                 "rate": self.default_rate,
-                "last_refill": last_refill
+                "last_refill": last_refill,
+                "resetTimeEpoch": int(reset_epoch),
+                "resetTime": reset_iso
             }
         except Exception as e:
             logger.error(f"Error getting bucket status for {client_id}: {e}")

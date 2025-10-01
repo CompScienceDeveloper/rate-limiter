@@ -1,6 +1,7 @@
 import time
 import math
 from typing import Dict, Optional
+from datetime import datetime, timezone
 import redis.asyncio as redis
 import logging
 
@@ -66,9 +67,23 @@ class SimpleTokenBucketRateLimiter:
                 pipe.expire(key, 3600)  # 1 hour TTL
                 await pipe.execute()
 
+                # Format reset time as ISO8601 UTC string
+                try:
+                    reset_iso = datetime.fromtimestamp(current_time + 1, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+                except Exception:
+                    reset_iso = int(current_time + 1)
+
+                # Also provide epoch and backward-compatible int resetTime
+                try:
+                    reset_epoch = int(current_time + 1)
+                except Exception:
+                    reset_epoch = int(time.time() + 1)
+
                 return {
                     "passed": True,
-                    "resetTime": int(current_time + 1),
+                    "resetTimeEpoch": reset_epoch,
+                    "resetTime": reset_epoch,
+                    "resetTimeISO": reset_iso,
                     "X-RateLimit-Limit": capacity,
                     "X-RateLimit-Remaining": int(current_tokens),
                 }
@@ -86,9 +101,22 @@ class SimpleTokenBucketRateLimiter:
                 tokens_needed = tokens_requested - current_tokens
                 reset_time = current_time + (tokens_needed / rate)
 
+                # Format reset time as ISO8601 UTC string
+                try:
+                    reset_iso = datetime.fromtimestamp(reset_time, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+                except Exception:
+                    reset_iso = int(reset_time)
+
+                try:
+                    reset_epoch = int(reset_time)
+                except Exception:
+                    reset_epoch = int(time.time() + 1)
+
                 return {
                     "passed": False,
-                    "resetTime": int(reset_time),
+                    "resetTimeEpoch": reset_epoch,
+                    "resetTime": reset_epoch,
+                    "resetTimeISO": reset_iso,
                     "X-RateLimit-Limit": capacity,
                     "X-RateLimit-Remaining": int(current_tokens),
                 }
@@ -96,12 +124,23 @@ class SimpleTokenBucketRateLimiter:
         except Exception as e:
             logger.error(f"Rate limiting error for {client_id}: {e}")
             # Fallback: allow request
-            return {
+            try:
+                reset_iso = datetime.fromtimestamp(current_time + 1, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+            except Exception:
+                reset_iso = None
+
+            reset_epoch = int(current_time + 1)
+            fallback = {
                 "passed": True,
-                "resetTime": int(current_time + 1),
+                "resetTimeEpoch": reset_epoch,
+                "resetTime": reset_epoch,
                 "X-RateLimit-Limit": capacity,
                 "X-RateLimit-Remaining": capacity,
             }
+            if reset_iso:
+                fallback["resetTimeISO"] = reset_iso
+
+            return fallback
 
     async def get_bucket_status(self, client_id: str, rule_id: str = "default") -> Dict:
         """Get current bucket status"""
@@ -109,14 +148,36 @@ class SimpleTokenBucketRateLimiter:
 
         try:
             bucket_data = await self.redis.hmget(key, 'tokens', 'last_refill')
-            tokens = float(bucket_data[0]) if bucket_data[0] else self.default_capacity
+            tokens = float(bucket_data[0]) if bucket_data[0] else float(self.default_capacity)
             last_refill = float(bucket_data[1]) if bucket_data[1] else time.time()
 
+            # Float refill math to match enforcement
+            time_elapsed = time.time() - last_refill
+            tokens_to_add = time_elapsed * self.default_rate
+            current_tokens = min(self.default_capacity, tokens + tokens_to_add)
+
+            # Compute reset epoch with divide-by-zero guard
+            if self.default_rate <= 0:
+                reset_epoch = time.time() + 31536000
+            else:
+                if current_tokens >= 1:
+                    reset_epoch = time.time() + 1
+                else:
+                    tokens_needed = 1 - current_tokens
+                    reset_epoch = time.time() + (tokens_needed / self.default_rate)
+
+            try:
+                reset_iso = datetime.fromtimestamp(reset_epoch, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+            except Exception:
+                reset_iso = int(reset_epoch)
+
             return {
-                "tokens": int(tokens),
+                "tokens": int(current_tokens),
                 "capacity": self.default_capacity,
                 "rate": self.default_rate,
-                "last_refill": last_refill
+                "last_refill": last_refill,
+                "resetTimeEpoch": int(reset_epoch),
+                "resetTime": reset_iso
             }
         except Exception as e:
             logger.error(f"Error getting bucket status: {e}")

@@ -22,7 +22,7 @@ RUN useradd --create-home --shell /bin/bash app \
 USER app
 
 # Expose ports
-EXPOSE 8000 8001 8002 8003
+EXPOSE 8000
 
 # Default command (can be overridden in docker-compose)
 CMD ["uvicorn", "src.gateway.api_gateway:app", "--host", "0.0.0.0", "--port", "8000"]

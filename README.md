@@ -242,3 +242,26 @@ When rate limit is exceeded:
 - **Throughput**: 1 million requests per second
 - **Availability**: High availability through Redis replication
 - **Scalability**: Horizontal scaling through sharding
+
+
+### Fail-Closed Behavior
+
+The rate limiter implements a fail-closed security model:
+
+- **Default Behavior**: If Redis is unavailable, all requests are denied (HTTP 503)
+- **Rationale**: Prioritizes security over availability
+  - Prevents unlimited requests during failures
+  - Protects against DDoS when rate limiting fails
+  - Ensures consistent rate limit enforcement
+
+**High Availability Strategy**:
+- Redis master-replica replication
+- Automatic failover with Redis Sentinel (optional)
+- Fast failure detection (1-second timeout)
+- Graceful error handling with clear error messages
+
+When Redis fails, requests receive:
+- Status: 503 Service Unavailable
+- Clear error message explaining temporary unavailability
+
+

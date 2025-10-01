@@ -33,7 +33,7 @@ def get_rate_limit_config() -> Tuple[float, int, str]:
         return rate, capacity, description
 
     # Otherwise use environment presets
-    env = os.getenv("ENVIRONMENT", "test").lower()
+    env = os.getenv("ENVIRONMENT", "local").lower()
 
     # Production Configuration (as per system design spec)
     if env in ["production", "prod"]:
@@ -41,10 +41,14 @@ def get_rate_limit_config() -> Tuple[float, int, str]:
 
     # Development Configuration
     elif env in ["development", "dev"]:
-        return 10.0, 50, "10 requests per second per user (development)"
+        # Dev settings tuned for enhanced testing: higher rate and capacity
+        # to exercise sustained and burst scenarios without being identical to production.
+        return 50.0, 100, "50 requests per second per user, capacity 100 (development)"
 
     # Test Configuration (default)
     else:
+        # Default test/local configuration: 20 requests per minute per user
+        # Production should be selected via ENVIRONMENT=production
         return 20.0 / 60.0, 20, "20 requests per minute per user (test environment)"
 
 # Load configuration from environment (each service reads independently)

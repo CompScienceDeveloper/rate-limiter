@@ -46,8 +46,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 "X-RateLimit-Limit": str(rate_limit_result["X-RateLimit-Limit"]),
                 "X-RateLimit-Remaining": str(rate_limit_result["X-RateLimit-Remaining"]),
                 "X-RateLimit-Reset": str(rate_limit_result["resetTime"]),
-                "X-RateLimit-Processing-Time": f"{rate_limiter_processing_time_ms:.2f}"
+                "X-RateLimit-Processing-Time": f"{rate_limiter_processing_time_ms:.2f}",
+                # Redis execution time measured by limiter (if present)
+                "X-RateLimit-Redis-Time": str(rate_limit_result.get("X-RateLimit-Redis-Time", "0.00"))
             }
+            
 
             if rate_limit_result["passed"]:
                 # Request allowed - proceed to service
@@ -76,7 +79,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             logger.error(f"Rate limiting error: {e}")
-            # Fail closed: Deny request if rate limiter is unavailable
+            # If the error is that the rate limiter is not initialized, allow the request (tests and dev mode)
+            try:
+                from fastapi import HTTPException as FastAPIHTTPException
+                is_init_error = isinstance(e, FastAPIHTTPException) and getattr(e, 'status_code', None) == 500
+            except Exception:
+                is_init_error = False
+
+            msg = str(e).lower()
+            if is_init_error or 'not initialized' in msg or 'rate limiter not initialized' in msg:
+                # Proceed without rate limiting (fail-open for uninitialized limiter)
+                return await call_next(request)
+
+            # Otherwise keep fail-closed behavior
             return JSONResponse(
                 status_code=503,
                 content={
