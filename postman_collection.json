@@ -1,0 +1,324 @@
+{
+	"info": {
+		"_postman_id": "aa1160d7-503d-4292-9afc-188f0262684d",
+		"name": "Rate Limiter - Postman Collection",
+		"description": "Collection of API Gateway and microservice endpoints for the rate-limiter project.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "7074344"
+	},
+	"item": [
+		{
+			"name": "API Gateway",
+			"item": [
+				{
+					"name": "API Gateway helath",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{gateway_url}}/health",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Health check endpoint for the API Gateway"
+					},
+					"response": []
+				},
+				{
+					"name": "Docs (Swagger UI)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{gateway_url}}/docs",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"docs"
+							]
+						},
+						"description": "Swagger UI documentation endpoint"
+					},
+					"response": []
+				},
+				{
+					"name": "Rate Limit Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-API-KEY",
+								"value": "{{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text",
+								"disabled": true
+							}
+						],
+						"url": {
+							"raw": "{{gateway_url}}/rate-limit/status",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"rate-limit",
+								"status"
+							]
+						},
+						"description": "Get current rate limit status"
+					},
+					"response": []
+				},
+				{
+					"name": "Rate Limit Reset",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-KEY",
+								"value": "{{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{gateway_url}}/rate-limit/reset",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"rate-limit",
+								"reset"
+							]
+						},
+						"description": "Reset rate limit counters"
+					},
+					"response": []
+				},
+				{
+					"name": "Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-API-KEY",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{gateway_url}}/stats",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"stats"
+							]
+						},
+						"description": "Get API Gateway statistics"
+					},
+					"response": []
+				},
+				{
+					"name": "Proxy: Service A - GET /test",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-API-KEY",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{gateway_url}}/service-a/test",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"service-a",
+								"test"
+							]
+						},
+						"description": "Proxy request to Service A GET /test endpoint"
+					},
+					"response": []
+				},
+				{
+					"name": "Proxy: Service B - GET /test",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-API-KEY",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{gateway_url}}/service-b/test?delay=0",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"service-b",
+								"test"
+							],
+							"query": [
+								{
+									"key": "delay",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Proxy request to Service B GET /test endpoint"
+					},
+					"response": []
+				},
+				{
+					"name": "Proxy: Service C - GET /test",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-API-KEY",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{gateway_url}}/service-c/test",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"service-c",
+								"test"
+							]
+						},
+						"description": "Proxy request to Service C GET /test endpoint"
+					},
+					"response": []
+				},
+				{
+					"name": "JWT Authentication Example",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"description": "JWT token for user authentication",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{gateway_url}}/service-a/test",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"service-a",
+								"test"
+							]
+						},
+						"description": "Example request using JWT authentication (no API key). Rate limiting will be applied per user_id from JWT payload. Note: You need to set a valid JWT token in the jwt_token variable first."
+					},
+					"response": []
+				},
+				{
+					"name": "IP-based Rate Limiting Example",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{gateway_url}}/service-a/test",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"service-a",
+								"test"
+							]
+						},
+						"description": "Example request with no authentication headers. Rate limiting will be applied per client IP address (fallback method)."
+					},
+					"response": []
+				},
+				{
+					"name": "Nginx health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{gateway_url}}/nginx-health",
+							"host": [
+								"{{gateway_url}}"
+							],
+							"path": [
+								"nginx-health"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for the API Gateway service"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"exec": [
+					"// Authentication Priority:",
+					"// 1. X-API-KEY header (highest priority)",
+					"// 2. Authorization: Bearer <JWT> header",
+					"// 3. Client IP address (fallback)",
+					"",
+					"// Rate limiting is applied per authenticated identity",
+					"// Current rate limit: 50 requests per second, burst capacity: 100"
+				],
+				"type": "text/javascript"
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "gateway_url",
+			"value": "http://localhost",
+			"type": "string"
+		},
+		{
+			"key": "api_key",
+			"value": "test-api-key",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
